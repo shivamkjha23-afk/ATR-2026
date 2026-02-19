@@ -1355,6 +1355,7 @@ function buildPermitEmailDraft(rows = []) {
 function setupPermitPlanningPage() {
   if (document.body.dataset.page !== 'permit-planning') return;
 
+  const SAP_WEBSITE_URL = localStorage.getItem('atr2026_sap_website_url') || 'https://me.sap.com';
   const permitSteps = [
     'LOGIN', 'IW21', 'Notification Type = Z2', 'Short Text = TITLE', 'Functional Location', 'Equipment', 'Planner Group = INP',
     'Main Work Center', 'Person Involved', 'WCM Operation', 'Permit Required', 'Permit Type', 'Create', 'Save',
@@ -1366,6 +1367,8 @@ function setupPermitPlanningPage() {
   const applyForm = document.getElementById('permitApplyForm');
   const continueBtn = document.getElementById('continuePermitFlowBtn');
   const message = document.getElementById('permitFlowMessage');
+  const progressLabel = document.getElementById('permitProgressLabel');
+  const progressBody = document.getElementById('permitProgressBody');
   const summaryBody = document.getElementById('permitSummaryBody');
   const emailDraft = document.getElementById('permitEmailDraft');
   const copyDraftBtn = document.getElementById('copyPermitEmailBtn');
@@ -1449,25 +1452,31 @@ function setupPermitPlanningPage() {
   }
 
   async function runPermitFlowForRow(row, commonInput) {
-    let stepIndex = Number(sessionStorage.getItem('last_successful_step_index') || '-1');
-    for (let i = stepIndex + 1; i < permitSteps.length; i += 1) {
+    const sapWindow = window.open(SAP_WEBSITE_URL, '_blank', 'noopener');
+    if (!sapWindow) {
+      throw new Error('Popup blocked. Allow popups to open SAP website and run steps.');
+    }
+
+    for (let i = 0; i < permitSteps.length; i += 1) {
       const step = permitSteps[i];
       try {
+        renderProgress(i, 'running');
+        message.textContent = `Processing ${row.equipment_tag || row.id}: ${step}`;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+
         if (step === 'Capture Requisition Number') {
-          const req = window.prompt(`Enter requisition number for ${row.equipment_tag}:`, '');
-          if (!req) throw new Error('Requisition number not provided.');
-          row.__REQUISITION_NO = req.trim();
+          row.__REQUISITION_NO = generateRequisitionNo(row);
         }
         if (step === 'Functional Location' && !commonInput.FUNCTIONAL_LOCATION) {
           throw new Error('Functional Location does not exist');
         }
-        sessionStorage.setItem('last_successful_step_index', String(i));
       } catch (err) {
-        message.textContent = `Fix SAP Screen and Click Continue. Step: ${step}. Error: ${err.message}`;
-        continueBtn.classList.remove('hidden');
+        renderProgress(i, 'error');
+        message.textContent = `Step failed for ${row.equipment_tag || row.id}: ${step}. Error: ${err.message}`;
         throw err;
       }
     }
+    renderProgress(permitSteps.length, 'done');
     return row.__REQUISITION_NO || `REQ-${Date.now()}`;
   }
 
@@ -1478,11 +1487,7 @@ function setupPermitPlanningPage() {
     renderSummary();
   };
 
-  continueBtn.onclick = async () => {
-    continueBtn.classList.add('hidden');
-    message.textContent = 'Resuming from last successful step...';
-    await applyForm.requestSubmit();
-  };
+  if (continueBtn) continueBtn.onclick = () => {};
 
   applyForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1563,13 +1568,11 @@ function setupPermitPlanningPage() {
           status: 'permit_applied'
         }, 'PLAN');
       }
-      sessionStorage.removeItem('last_successful_step_index');
       message.textContent = `Permit flow completed for ${selectedRows.length} item(s).`;
       renderPlanning();
       renderRequestTable();
       renderSummary();
     } catch (err) {
-      if (!continueBtn.classList.contains('hidden')) return;
       message.textContent = err.message;
     }
   });
@@ -1592,6 +1595,7 @@ function setupPermitPlanningPage() {
   renderPlanning();
   renderRequestTable();
   renderSummary();
+  renderProgress(-1, 'idle');
 }
 
 function setupSyncStatusUI() {

@@ -71,10 +71,18 @@
             </div>
             <div class="actions" style="margin-top: 10px;">
               <button class="btn btn-primary" id="applyPermitBtn" type="submit">Apply Permit</button>
-              <button class="btn hidden" id="continuePermitFlowBtn" type="button">Continue</button>
             </div>
           </form>
           <p id="permitFlowMessage" class="hint"></p>
+          <div class="table-wrap" style="margin-top: 10px;">
+            <p id="permitProgressLabel" class="hint">Waiting for Apply Permit.</p>
+            <table>
+              <thead>
+                <tr><th>Status</th><th>Step No.</th><th>SAP Step</th></tr>
+              </thead>
+              <tbody id="permitProgressBody"></tbody>
+            </table>
+          </div>
         </section>
 
         <section class="table-card">
