@@ -1355,8 +1355,8 @@ function buildPermitEmailDraft(rows = []) {
 function setupPermitPlanningPage() {
   if (document.body.dataset.page !== 'permit-planning') return;
 
-  const SAP_WEBSITE_URL = 'https://sugam.gail.co.in/';
-  let permitSteps = [
+  const SAP_WEBSITE_URL = localStorage.getItem('atr2026_sap_website_url') || 'https://me.sap.com';
+  const permitSteps = [
     'LOGIN', 'IW21', 'Notification Type = Z2', 'Short Text = TITLE', 'Functional Location', 'Equipment', 'Planner Group = INP',
     'Main Work Center', 'Person Involved', 'WCM Operation', 'Permit Required', 'Permit Type', 'Create', 'Save',
     'Capture Requisition Number', 'Release', 'Save'
@@ -1386,46 +1386,6 @@ function setupPermitPlanningPage() {
   cpfInput.value = sessionData.CPF_NO || '';
   commonWorkCenterInput.value = sessionData.WORK_CENTER || '';
   sessionHint.textContent = 'Common inputs are stored per user and reused automatically.';
-
-  function toStepLabel(step = {}) {
-    const action = String(step.action || '').replace(/_/g, ' ').trim();
-    const selector = step.selector || {};
-    const selectorText = selector['aria-label'] || selector.text || '';
-    const value = step.value ? String(step.value).replace(/{{|}}/g, '') : '';
-    const parts = [action.toUpperCase() || 'STEP', selectorText, value].filter(Boolean);
-    return parts.join(' • ');
-  }
-
-  async function loadPermitStepsFromConfig() {
-    try {
-      const res = await fetch(encodeURI('Apply permit-z2.json'), { cache: 'no-store' });
-      if (!res.ok) return;
-      const flow = await res.json();
-      const configured = Array.isArray(flow?.steps) ? flow.steps.map((step) => toStepLabel(step)).filter(Boolean) : [];
-      if (configured.length) {
-        permitSteps = configured;
-        renderProgress(-1, 'idle');
-      }
-    } catch (_) {}
-  }
-
-  function renderProgress(currentStepIndex = -1, status = 'idle') {
-    if (!progressBody || !progressLabel) return;
-
-    const statusLabel = status === 'running' ? 'Running SAP steps...' : status === 'done' ? 'SAP steps completed.' : status === 'error' ? 'SAP step failed.' : 'Waiting for Apply Permit.';
-    progressLabel.textContent = statusLabel;
-    progressBody.innerHTML = permitSteps.map((step, index) => {
-      const marker = index < currentStepIndex ? '✅' : index === currentStepIndex ? '⏳' : '⬜';
-      return `<tr><td>${marker}</td><td>${index + 1}</td><td>${step}</td></tr>`;
-    }).join('');
-  }
-
-  function generateRequisitionNo(row) {
-    const cleanTag = String(row.equipment_tag || 'TAG').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase() || 'TAG';
-    const now = new Date();
-    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-    return `REQ-${cleanTag}-${stamp}`;
-  }
 
   function getUserPlanningRows() {
     return getCollection('next_day_planning').filter((x) => {
@@ -1525,6 +1485,8 @@ function setupPermitPlanningPage() {
     renderRequestTable();
     renderSummary();
   };
+
+  if (continueBtn) continueBtn.onclick = () => {};
 
   applyForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1633,7 +1595,6 @@ function setupPermitPlanningPage() {
   renderRequestTable();
   renderSummary();
   renderProgress(-1, 'idle');
-  loadPermitStepsFromConfig();
 }
 
 function setupSyncStatusUI() {
