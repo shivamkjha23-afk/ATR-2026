@@ -665,12 +665,12 @@ function setupInspectionPage() {
             <tbody>
               ${grouped[unit].map((r) => `
                 <tr>
-                  <td><input type="checkbox" class="inspection-selector" data-id="${r.id}" data-unit="${unit}" /></td>
+                  <td><input type="checkbox" class="inspection-selector" data-id="${r.id || ""}" data-key="${String(r.id || r.equipment_tag_number || "").trim().toLowerCase()}" data-unit="${unit}" /></td>
                   <td>${r.equipment_tag_number}</td>
                   <td>${r.equipment_type}</td>
                   <td>${r.status || '-'}</td>
                   <td>${r.final_status || '-'}</td>
-                  <td><button class="btn edit-equipment" data-id="${r.id}" type="button">Edit</button></td>
+                  <td><button class="btn edit-equipment" data-id="${r.id || ""}" data-tag="${r.equipment_tag_number || ""}" type="button">Edit</button></td>
                 </tr>
               `).join('')}
             </tbody>
@@ -687,7 +687,7 @@ function setupInspectionPage() {
 
     unitLists.querySelectorAll('.edit-equipment').forEach((btn) => {
       btn.onclick = () => {
-        const row = getCollection('inspections').find((r) => r.id === btn.dataset.id);
+        const row = getCollection('inspections').find((r) => r.id === btn.dataset.id || String(r.equipment_tag_number || "") === String(btn.dataset.tag || ""));
         if (!row) return;
         editId = row.id;
         const normalized = normalizeInspectionPayload(row);
@@ -738,27 +738,32 @@ function setupInspectionPage() {
   };
 
   document.getElementById('markSelectedCompletedBtn').onclick = () => {
-    const ids = new Set(Array.from(document.querySelectorAll('.inspection-selector:checked')).map((i) => i.dataset.id));
-    if (!ids.size) return;
+    const selectedKeys = new Set(Array.from(document.querySelectorAll('.inspection-selector:checked')).map((i) => String(i.dataset.key || '').trim().toLowerCase()).filter(Boolean));
+    if (!selectedKeys.size) return;
     const rows = getCollection('inspections');
-    const updates = rows.filter((row) => ids.has(row.id)).map((row) => ({ ...row, final_status: 'Completed', completed_at: localDateISO() }));
+    const updates = rows
+      .filter((row) => selectedKeys.has(String(row.id || row.equipment_tag_number || '').trim().toLowerCase()))
+      .map((row) => ({ ...row, final_status: 'Completed', completed_at: localDateISO() }));
     batchUpsertById('inspections', updates, 'INSP');
     renderInspectionList();
   };
 
   document.getElementById('addSelectedToNextDayPlanningBtn').onclick = () => {
-    const ids = new Set(Array.from(document.querySelectorAll('.inspection-selector:checked')).map((i) => i.dataset.id));
-    if (!ids.size) {
+    const selectedKeys = new Set(Array.from(document.querySelectorAll('.inspection-selector:checked')).map((i) => String(i.dataset.key || '').trim().toLowerCase()).filter(Boolean));
+    if (!selectedKeys.size) {
       alert('Select at least one equipment item.');
       return;
     }
     const currentUser = getLoggedInUser();
+    const normalizedUser = String(currentUser || '').trim().toLowerCase();
     const plannedDate = new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString().slice(0, 10);
     const rows = getCollection('inspections');
     const existing = getCollection('next_day_planning');
-    const existingKey = new Set(existing.filter((x) => x.user_id === currentUser).map((x) => `${x.equipment_tag}__${x.planned_date}`));
+    const existingKey = new Set(existing
+      .filter((x) => String(x.user_id || '').trim().toLowerCase() === normalizedUser)
+      .map((x) => `${x.equipment_tag}__${x.planned_date}`));
     const toAdd = rows
-      .filter((row) => ids.has(row.id))
+      .filter((row) => selectedKeys.has(String(row.id || row.equipment_tag_number || '').trim().toLowerCase()))
       .filter((row) => !existingKey.has(`${row.equipment_tag_number}__${plannedDate}`))
       .map((row) => ({
         user_id: currentUser,
