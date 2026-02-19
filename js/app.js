@@ -1365,7 +1365,6 @@ function setupPermitPlanningPage() {
   const sessionHint = document.getElementById('permitSessionHint');
   const planningBody = document.getElementById('planningTableBody');
   const applyForm = document.getElementById('permitApplyForm');
-  const continueBtn = document.getElementById('continuePermitFlowBtn');
   const message = document.getElementById('permitFlowMessage');
   const progressLabel = document.getElementById('permitProgressLabel');
   const progressBody = document.getElementById('permitProgressBody');
