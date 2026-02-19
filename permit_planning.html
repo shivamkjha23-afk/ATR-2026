@@ -31,22 +31,8 @@
 
       <main class="page-main">
         <section class="form-card">
-          <h2>SAP Session Credentials (once per session)</h2>
-          <form id="permitSessionForm" class="form-grid">
-            <label>USERNAME
-              <input id="permitUsername" required />
-            </label>
-            <label>PASSWORD
-              <input id="permitPassword" type="password" required />
-            </label>
-            <label>CPF_NO
-              <input id="permitCpfNo" required />
-            </label>
-            <div class="actions full-width">
-              <button class="btn btn-primary" id="savePermitSessionBtn" type="submit">Save Session Inputs</button>
-            </div>
-          </form>
-          <p class="hint" id="permitSessionHint"></p>
+          <h2>Permit Request Defaults</h2>
+          <p class="hint" id="permitSessionHint">Set common values once. Row-level inputs stay in the permit request table.</p>
         </section>
 
         <section class="table-card">
@@ -71,6 +57,9 @@
               <label>Common WORK_CENTER (for all selected rows)
                 <input id="permitCommonWorkCenter" required />
               </label>
+              <label>CPF_NO (common per user)
+                <input id="permitCpfNo" required />
+              </label>
             </div>
             <div class="table-wrap">
               <table>
@@ -82,10 +71,18 @@
             </div>
             <div class="actions" style="margin-top: 10px;">
               <button class="btn btn-primary" id="applyPermitBtn" type="submit">Apply Permit</button>
-              <button class="btn hidden" id="continuePermitFlowBtn" type="button">Continue</button>
             </div>
           </form>
           <p id="permitFlowMessage" class="hint"></p>
+          <div class="table-wrap" style="margin-top: 10px;">
+            <p id="permitProgressLabel" class="hint">Waiting for Apply Permit.</p>
+            <table>
+              <thead>
+                <tr><th>Status</th><th>Step No.</th><th>SAP Step</th></tr>
+              </thead>
+              <tbody id="permitProgressBody"></tbody>
+            </table>
+          </div>
         </section>
 
         <section class="table-card">
