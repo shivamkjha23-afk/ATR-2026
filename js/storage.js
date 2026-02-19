@@ -507,6 +507,8 @@ function hasMeaningfulRuntimeData(db) {
     (payload.inspections || []).length > 0 ||
     (payload.observations || []).length > 0 ||
     (payload.requisitions || []).length > 0 ||
+    (payload.next_day_planning || []).length > 0 ||
+    (payload.permit_applications || []).length > 0 ||
     Object.keys(payload.images || {}).length > 0
   );
 }
@@ -531,6 +533,8 @@ function buildDatabaseFilesPayload() {
     inspections: db.inspections || [],
     observations: db.observations || [],
     requisitions: db.requisitions || [],
+    next_day_planning: db.next_day_planning || [],
+    permit_applications: db.permit_applications || [],
     users: db.users || [],
     images: db.images || {},
     _meta: db._meta || { last_updated: nowStamp() }

@@ -766,7 +766,7 @@ function setupInspectionPage() {
       .filter((row) => selectedKeys.has(String(row.id || row.equipment_tag_number || '').trim().toLowerCase()))
       .filter((row) => !existingKey.has(`${row.equipment_tag_number}__${plannedDate}`))
       .map((row) => ({
-        user_id: currentUser,
+        user_id: normalizedUser,
         equipment_tag: row.equipment_tag_number || '',
         equipment_name: row.equipment_name || '',
         functional_location: row.functional_location || row.unit_name || '',
@@ -1328,16 +1328,22 @@ function setupAdminPanel() {
 
 
 
-function getPermitSessionData() {
+function getPermitSessionData(username = '') {
+  const normalizedUser = String(username || '').trim().toLowerCase();
+  const scopedKey = `atr2026_permit_session_${normalizedUser}`;
   try {
-    return JSON.parse(sessionStorage.getItem('atr2026_permit_session') || '{}');
+    return JSON.parse(localStorage.getItem(scopedKey) || sessionStorage.getItem(scopedKey) || '{}');
   } catch (_) {
     return {};
   }
 }
 
-function setPermitSessionData(payload) {
-  sessionStorage.setItem('atr2026_permit_session', JSON.stringify(payload || {}));
+function setPermitSessionData(username = '', payload = {}) {
+  const normalizedUser = String(username || '').trim().toLowerCase();
+  const scopedKey = `atr2026_permit_session_${normalizedUser}`;
+  const serialized = JSON.stringify(payload || {});
+  localStorage.setItem(scopedKey, serialized);
+  sessionStorage.setItem(scopedKey, serialized);
 }
 
 function buildPermitEmailDraft(rows = []) {
@@ -1349,18 +1355,20 @@ function buildPermitEmailDraft(rows = []) {
 function setupPermitPlanningPage() {
   if (document.body.dataset.page !== 'permit-planning') return;
 
+  const SAP_WEBSITE_URL = localStorage.getItem('atr2026_sap_website_url') || 'https://me.sap.com';
   const permitSteps = [
     'LOGIN', 'IW21', 'Notification Type = Z2', 'Short Text = TITLE', 'Functional Location', 'Equipment', 'Planner Group = INP',
     'Main Work Center', 'Person Involved', 'WCM Operation', 'Permit Required', 'Permit Type', 'Create', 'Save',
     'Capture Requisition Number', 'Release', 'Save'
   ];
 
-  const sessionForm = document.getElementById('permitSessionForm');
   const sessionHint = document.getElementById('permitSessionHint');
   const planningBody = document.getElementById('planningTableBody');
   const applyForm = document.getElementById('permitApplyForm');
   const continueBtn = document.getElementById('continuePermitFlowBtn');
   const message = document.getElementById('permitFlowMessage');
+  const progressLabel = document.getElementById('permitProgressLabel');
+  const progressBody = document.getElementById('permitProgressBody');
   const summaryBody = document.getElementById('permitSummaryBody');
   const emailDraft = document.getElementById('permitEmailDraft');
   const copyDraftBtn = document.getElementById('copyPermitEmailBtn');
@@ -1374,15 +1382,35 @@ function setupPermitPlanningPage() {
     .map((p) => `<option value="${p.value}">${p.value} → ${p.label}</option>`)
     .join('');
 
-  const sessionData = getPermitSessionData();
-  document.getElementById('permitUsername').value = sessionData.USERNAME || '';
-  document.getElementById('permitPassword').value = sessionData.PASSWORD || '';
-  document.getElementById('permitCpfNo').value = sessionData.CPF_NO || '';
+  const cpfInput = document.getElementById('permitCpfNo');
+  const sessionData = getPermitSessionData(username);
+  cpfInput.value = sessionData.CPF_NO || '';
   commonWorkCenterInput.value = sessionData.WORK_CENTER || '';
-  sessionHint.textContent = sessionData.USERNAME ? `Session data loaded for ${sessionData.USERNAME}.` : 'No session credentials stored yet.';
+  sessionHint.textContent = 'Common inputs are stored per user and reused automatically.';
+
+  function renderProgress(currentStepIndex = -1, status = 'idle') {
+    if (!progressBody || !progressLabel) return;
+
+    const statusLabel = status === 'running' ? 'Running SAP steps...' : status === 'done' ? 'SAP steps completed.' : status === 'error' ? 'SAP step failed.' : 'Waiting for Apply Permit.';
+    progressLabel.textContent = statusLabel;
+    progressBody.innerHTML = permitSteps.map((step, index) => {
+      const marker = index < currentStepIndex ? '✅' : index === currentStepIndex ? '⏳' : '⬜';
+      return `<tr><td>${marker}</td><td>${index + 1}</td><td>${step}</td></tr>`;
+    }).join('');
+  }
+
+  function generateRequisitionNo(row) {
+    const cleanTag = String(row.equipment_tag || 'TAG').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase() || 'TAG';
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+    return `REQ-${cleanTag}-${stamp}`;
+  }
 
   function getUserPlanningRows() {
-    return getCollection('next_day_planning').filter((x) => String(x.user_id || '').trim().toLowerCase() === username);
+    return getCollection('next_day_planning').filter((x) => {
+      const owner = String(x.user_id || x.entered_by || x.updated_by || '').trim().toLowerCase();
+      return owner === username;
+    });
   }
 
   function getPendingPlanningRows() {
@@ -1442,39 +1470,34 @@ function setupPermitPlanningPage() {
   }
 
   async function runPermitFlowForRow(row, commonInput) {
-    let stepIndex = Number(sessionStorage.getItem('last_successful_step_index') || '-1');
-    for (let i = stepIndex + 1; i < permitSteps.length; i += 1) {
+    const sapWindow = window.open(SAP_WEBSITE_URL, '_blank', 'noopener');
+    if (!sapWindow) {
+      throw new Error('Popup blocked. Allow popups to open SAP website and run steps.');
+    }
+
+    for (let i = 0; i < permitSteps.length; i += 1) {
       const step = permitSteps[i];
       try {
+        renderProgress(i, 'running');
+        message.textContent = `Processing ${row.equipment_tag || row.id}: ${step}`;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+
         if (step === 'Capture Requisition Number') {
-          const req = window.prompt(`Enter requisition number for ${row.equipment_tag}:`, '');
-          if (!req) throw new Error('Requisition number not provided.');
-          row.__REQUISITION_NO = req.trim();
+          row.__REQUISITION_NO = generateRequisitionNo(row);
         }
         if (step === 'Functional Location' && !commonInput.FUNCTIONAL_LOCATION) {
           throw new Error('Functional Location does not exist');
         }
-        sessionStorage.setItem('last_successful_step_index', String(i));
       } catch (err) {
-        message.textContent = `Fix SAP Screen and Click Continue. Step: ${step}. Error: ${err.message}`;
-        continueBtn.classList.remove('hidden');
+        renderProgress(i, 'error');
+        message.textContent = `Step failed for ${row.equipment_tag || row.id}: ${step}. Error: ${err.message}`;
         throw err;
       }
     }
+    renderProgress(permitSteps.length, 'done');
     return row.__REQUISITION_NO || `REQ-${Date.now()}`;
   }
 
-  sessionForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const payload = {
-      USERNAME: document.getElementById('permitUsername').value.trim(),
-      PASSWORD: document.getElementById('permitPassword').value,
-      CPF_NO: document.getElementById('permitCpfNo').value.trim(),
-      WORK_CENTER: commonWorkCenterInput.value.trim()
-    };
-    setPermitSessionData(payload);
-    sessionHint.textContent = `Session credentials saved for ${payload.USERNAME}.`;
-  });
 
   document.getElementById('refreshPlanningBtn').onclick = () => {
     renderPlanning();
@@ -1482,18 +1505,15 @@ function setupPermitPlanningPage() {
     renderSummary();
   };
 
-  continueBtn.onclick = async () => {
-    continueBtn.classList.add('hidden');
-    message.textContent = 'Resuming from last successful step...';
-    await applyForm.requestSubmit();
-  };
+  if (continueBtn) continueBtn.onclick = () => {};
 
   applyForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const sessionInputs = getPermitSessionData();
-    if (!sessionInputs.USERNAME || !sessionInputs.PASSWORD || !sessionInputs.CPF_NO) {
-      alert('Please save USERNAME, PASSWORD, CPF_NO once per session.');
+    const sessionInputs = getPermitSessionData(username);
+    const cpfNo = cpfInput.value.trim() || sessionInputs.CPF_NO || '';
+    if (!cpfNo) {
+      alert('Enter CPF_NO once. It will be reused for this user.');
       return;
     }
 
@@ -1516,6 +1536,11 @@ function setupPermitPlanningPage() {
       return;
     }
 
+    setPermitSessionData(username, {
+      CPF_NO: cpfNo,
+      WORK_CENTER: commonWorkCenter
+    });
+
     const titleById = new Map(Array.from(document.querySelectorAll('.permit-title-input')).map((el) => [el.dataset.id, el.value.trim()]));
     const permitTypeById = new Map(Array.from(document.querySelectorAll('.permit-type-input')).map((el) => [el.dataset.id, el.value]));
     const personById = new Map(Array.from(document.querySelectorAll('.permit-person-input')).map((el) => [el.dataset.id, el.value]));
@@ -1531,15 +1556,15 @@ function setupPermitPlanningPage() {
         }
 
         const commonInput = {
-          USERNAME: sessionInputs.USERNAME,
-          PASSWORD: sessionInputs.PASSWORD,
+          USERNAME: username,
+          PASSWORD: '',
           TITLE: title,
           DESCRIPTION: '',
           FUNCTIONAL_LOCATION: (row.functional_location || '').trim(),
           WORK_CENTER: commonWorkCenter,
           NO_OF_PERSON: noOfPerson,
           PERMIT_TYPE: permitType,
-          CPF_NO: sessionInputs.CPF_NO
+          CPF_NO: cpfNo
         };
 
         const reqNo = await runPermitFlowForRow(row, commonInput);
@@ -1561,13 +1586,11 @@ function setupPermitPlanningPage() {
           status: 'permit_applied'
         }, 'PLAN');
       }
-      sessionStorage.removeItem('last_successful_step_index');
       message.textContent = `Permit flow completed for ${selectedRows.length} item(s).`;
       renderPlanning();
       renderRequestTable();
       renderSummary();
     } catch (err) {
-      if (!continueBtn.classList.contains('hidden')) return;
       message.textContent = err.message;
     }
   });
@@ -1590,6 +1613,7 @@ function setupPermitPlanningPage() {
   renderPlanning();
   renderRequestTable();
   renderSummary();
+  renderProgress(-1, 'idle');
 }
 
 function setupSyncStatusUI() {
