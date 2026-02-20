@@ -1613,13 +1613,6 @@ ${commonInput.PASSWORD}`);
       message.textContent = 'SAP opened. Browser blocked clipboard write; paste SAP username/password manually.';
     }
 
-    for (let i = 0; i < permitSteps.length; i += 1) {
-      const step = permitSteps[i];
-      try {
-        renderProgress(i, 'running');
-        message.textContent = `Processing ${row.equipment_tag || row.id}: ${toStepLabel(step)}`;
-        await new Promise((resolve) => setTimeout(resolve, 350));
-
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     if (!canControlSapWindow(sapWindow)) {
