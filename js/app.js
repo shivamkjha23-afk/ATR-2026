@@ -716,11 +716,12 @@ function setupInspectionPage() {
   document.getElementById('openAddEquipmentBtn').onclick = () => { closeForm(); openForm('Add Equipment'); };
   document.getElementById('closeInspectionFormBtn').onclick = closeForm;
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (saveInProgress) return;
     saveInProgress = true;
     setButtonLoadingState(submitBtn, true, 'Save Update', 'Saving Update...');
+
     const payload = normalizeInspectionPayload({
       id: editId,
       unit_name: document.getElementById('unit_name').value,
@@ -738,10 +739,20 @@ function setupInspectionPage() {
       observation: document.getElementById('observation').value,
       recommendation: document.getElementById('recommendation').value
     });
-    upsertById('inspections', payload, 'INSP');
-    closeForm();
-    if (typeof setSyncStatus === 'function') setSyncStatus({ ok: true, message: 'Inspection saved successfully.' });
-    renderInspectionList();
+
+    try {
+      upsertById('inspections', payload, 'INSP');
+      await syncAllToCloud();
+      if (typeof setSyncStatus === 'function') setSyncStatus({ ok: true, message: 'Inspection saved to Firebase successfully.' });
+      closeForm();
+      renderInspectionList();
+    } catch (err) {
+      saveInProgress = false;
+      setButtonLoadingState(submitBtn, false, 'Save Update');
+      const msg = err?.message || 'Failed to save inspection to Firebase.';
+      if (typeof setSyncStatus === 'function') setSyncStatus({ ok: false, message: msg });
+      alert(msg);
+    }
   });
 
   document.getElementById('markCompletedBtn').onclick = () => {
