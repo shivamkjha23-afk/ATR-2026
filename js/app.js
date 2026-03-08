@@ -1553,48 +1553,6 @@ function setupPermitPlanningPage() {
     return 'click';
   }
 
-  function getPrimarySelector(step = {}) {
-    if (step.selector?.id) return `#${step.selector.id}`;
-    if (step.selector?.['aria-label']) return `[aria-label="${step.selector['aria-label'].replace(/"/g, '\\"')}"]`;
-    if (step.selector?.role && step.selector?.text) return `[role="${step.selector.role}"]`;
-    if (Array.isArray(step.selectors)) {
-      for (const candidate of step.selectors) {
-        const first = Array.isArray(candidate) ? candidate[0] : candidate;
-        if (!first || typeof first !== 'string') continue;
-        if (first.startsWith('#') || first.startsWith('.') || first.startsWith('[') || first.startsWith('div') || first.startsWith('input') || first.startsWith('button')) return first;
-        if (first.startsWith('aria/')) {
-          const label = first.replace(/^aria\//, '').replace(/\[role=.*$/, '').trim();
-          return `[aria-label="${label.replace(/"/g, '\\"')}"]`;
-        }
-      }
-    }
-    return '';
-  }
-
-  function encodeAutomationPayload(payload = {}) {
-    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  }
-
-  function buildSugamExecutionUrl(payload = {}) {
-    const encodedPayload = encodeAutomationPayload(payload);
-    const runner = `javascript:(function(){const decode=(raw)=>JSON.parse(decodeURIComponent(escape(atob(raw))));const wait=(ms)=>new Promise((r)=>setTimeout(r,ms));const payload=decode('${encodedPayload}');const runtime=payload.runtime||{};const steps=Array.isArray(payload.steps)?payload.steps:[];const runId=payload.runId||'';const resolve=(v)=>typeof v==='string'?v.replace(/{{\s*([A-Z0-9_]+)\s*}}/g,(_,t)=>String(runtime[t]??'')):v;const getSelector=(step)=>{if(step.selector&&step.selector.id)return '#'+step.selector.id;if(step.selector&&step.selector['aria-label'])return '[aria-label="'+String(step.selector['aria-label']).replace(/"/g,'\\"')+'"]';if(Array.isArray(step.selectors)){for(const c of step.selectors){const first=Array.isArray(c)?c[0]:c;if(!first||typeof first!=='string')continue;if(/^#|^\.|^\[|^div|^input|^button/.test(first))return first;if(first.startsWith('aria/')){const label=first.replace(/^aria\//,'').replace(/\[role=.*$/,'').trim();if(label)return '[aria-label="'+label.replace(/"/g,'\\"')+'"]';}}}return '';};const find=(selector)=>{if(!selector)return null;try{return document.querySelector(selector);}catch(_){return null;}};const setValue=(el,val)=>{if(!el)return;el.focus();if('value' in el){el.value=String(val??'');el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}else{el.click();}};const press=(key='Enter')=>{const tgt=document.activeElement||document.body;tgt.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));tgt.dispatchEvent(new KeyboardEvent('keyup',{key,bubbles:true}));};const captureReqNo=()=>{const pool=[document.body?.innerText||'',...Array.from(document.querySelectorAll('[role="status"],.sapMMsgStripText,.urMsgBar')).map((el)=>el.textContent||'')].join('\n');const m=pool.match(/(?:requisition|request)\s*(?:no|number)?\s*[:#-]?\s*([0-9]{6,12})/i)||pool.match(/\b([0-9]{6,12})\b/);return m?m[1]:'';};(async()=>{let reqNo='';try{for(let i=0;i<steps.length;i+=1){const step=steps[i]||{};const selector=getSelector(step);const el=find(selector);const stepType=String(step.type||step.action||'').toLowerCase();const normalized=(stepType==='set_field'||stepType==='type'||stepType==='search_app')?'change':stepType;if(normalized==='click'){if(el)el.click();}else if(normalized==='doubleclick'){if(el)el.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));}else if(normalized==='change'){if(el){el.click();setValue(el,resolve(step.value));}}else if(normalized==='keydown'){press(step.key||'Enter');}else if(normalized==='keyup'){}else if(normalized==='capture_requisition_no'){reqNo=captureReqNo();}if(step.key==='Enter'&&normalized!=='keydown')press('Enter');await wait(Number(step.duration||300));}if(!reqNo)reqNo=captureReqNo();if(window.opener){window.opener.postMessage({type:'atr-permit-result',runId,reqNo:reqNo||'',ok:!!reqNo},'*');}if(!reqNo)alert('Permit steps completed. Requisition no could not be auto-captured, please copy manually.');}catch(err){if(window.opener){window.opener.postMessage({type:'atr-permit-result',runId,reqNo:'',ok:false,error:String(err&&err.message||err)},'*');}alert('Permit automation failed: '+(err&&err.message||err));}})();})();`;
-    return runner;
-  }
-
-  const permitRunWaiters = new Map();
-  function handlePermitAutomationMessage(evt) {
-    const data = evt?.data || {};
-    if (data.type !== 'atr-permit-result' || !data.runId) return;
-    const waiter = permitRunWaiters.get(data.runId);
-    if (!waiter) return;
-    clearTimeout(waiter.timer);
-    permitRunWaiters.delete(data.runId);
-    if (data.ok && data.reqNo) waiter.resolve(String(data.reqNo).trim());
-    else waiter.reject(new Error(data.error || 'Could not capture requisition number from SUGAM.'));
-  }
-  window.removeEventListener('message', handlePermitAutomationMessage);
-  window.addEventListener('message', handlePermitAutomationMessage);
-
   function openSugamWindow() {
     const sapWindow = window.open(SAP_WEBSITE_URL, 'sugam');
     if (!sapWindow) {
@@ -1605,42 +1563,21 @@ function setupPermitPlanningPage() {
   }
 
   async function runPermitFlowForRow(row, commonInput, enteredReqNo = '') {
-    const runtime = {
-      ...commonInput,
-      EQUIPMENT: row.equipment_tag || commonInput.EQUIPMENT || '',
-      FUNCTIONAL_LOCATION: row.functional_location || commonInput.FUNCTIONAL_LOCATION || ''
-    };
+    openSugamWindow();
+    const runtime = { ...commonInput, EQUIPMENT: row.equipment_tag || commonInput.EQUIPMENT || '' };
 
-    const sapWindow = openSugamWindow();
-    const runId = `permit_${row.id || Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    if (!enteredReqNo) {
-      const executionUrl = buildSugamExecutionUrl({ runId, runtime, steps: permitSteps });
-      const reqPromise = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          permitRunWaiters.delete(runId);
-          reject(new Error('Timed out while waiting for requisition number from SUGAM. Save the permit, then retry or enter requisition number manually.'));
-        }, 180000);
-        permitRunWaiters.set(runId, { resolve, reject, timer });
-      });
-
-      try {
-        sapWindow.location.href = executionUrl;
-      } catch (_) {
-        permitRunWaiters.delete(runId);
-        throw new Error('Browser blocked script execution in SUGAM window. Enter requisition number manually and re-apply for this row.');
-      }
-
-      message.textContent = 'Executing recorded script in SUGAM window "sugam". Waiting for Save and requisition number capture...';
-      renderProgress(permitSteps.length - 1, 'running');
-      const capturedReqNo = await reqPromise;
-      renderProgress(permitSteps.length, 'done');
-      return capturedReqNo;
+    message.textContent = 'SUGAM window "sugam" opened/reused. Continue from search box (already logged in).';
+    for (let i = 0; i < permitSteps.length; i += 1) {
+      const step = permitSteps[i];
+      renderProgress(i, 'running');
+      const value = resolvePermitValue(step.value, runtime);
+      message.textContent = `Step ${i + 1}/${permitSteps.length}: ${toStepLabel(step)}${value ? ` → ${value}` : ''}`;
+      await new Promise((resolve) => setTimeout(resolve, 70));
     }
 
     message.textContent = `Using manually entered requisition no: ${enteredReqNo}`;
     renderProgress(permitSteps.length, 'done');
-    return enteredReqNo;
+    return enteredReqNo || generateRequisitionNo(row);
   }
 
 
