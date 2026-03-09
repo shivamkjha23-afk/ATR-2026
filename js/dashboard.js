@@ -531,8 +531,11 @@ function getDashboardJsPdf() {
   return window.jspdf?.jsPDF || null;
 }
 
+function getDashboardHtml2Canvas() {
+  return window.html2canvas || null;
+}
 
-function addPdfPageHeader(doc, title, pageWidth, generatedAt = '') {
+function addPdfPageHeader(doc, title, pageWidth) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.text(title, 12, 14);
@@ -564,61 +567,32 @@ async function waitForDashboardVisualStability() {
   await new Promise((resolve) => window.setTimeout(resolve, 200));
 }
 
-function styleClonedSectionForPdf(clonedDoc, exportId) {
-  const section = clonedDoc.querySelector(`[data-export-id="${exportId}"]`);
-  if (!section) return;
-
-  section.style.background = '#ffffff';
-  section.style.color = '#111827';
-  section.style.border = '1px solid #cbd5e1';
-  section.style.borderRadius = '12px';
-  section.style.padding = '14px';
-  section.style.boxSizing = 'border-box';
-
-  section.querySelectorAll('.dashboard-filter-tabs').forEach((el) => el.remove());
-
-  section.querySelectorAll('.card, .chart-card, .table-wrap, .vessel-progress-wrap').forEach((node) => {
-    node.style.background = '#ffffff';
-    node.style.color = '#0f172a';
-    node.style.borderColor = '#cbd5e1';
-  });
-
-  section.querySelectorAll('table, th, td, tfoot td').forEach((node) => {
-    node.style.background = '#ffffff';
-    node.style.color = '#0f172a';
-    node.style.borderColor = '#cbd5e1';
-  });
-
-  section.querySelectorAll('th').forEach((th) => {
-    th.style.fontWeight = '700';
-    th.style.background = '#f8fafc';
-  });
-
-  section.querySelectorAll('.vessel-progress-table tbody tr td').forEach((td) => {
-    td.style.background = '#ffffff';
-  });
-}
-
 function collectDashboardExportTargets(root) {
   const sections = Array.from(root.querySelectorAll('.table-card'));
-  return sections.map((section, idx) => {
+  const targets = [];
+
+  sections.forEach((section) => {
     const title = section.querySelector('h2')?.textContent?.trim() || 'Dashboard Section';
-    const exportId = `dashboard-export-${idx}`;
-    section.dataset.exportId = exportId;
-    return { title, element: section, exportId };
+    const table = section.querySelector('.table-wrap, .vessel-progress-wrap');
+    const chart = section.querySelector('.chart-card');
+    const cards = section.querySelector('.cards-grid');
+
+    if (table) {
+      targets.push({ title: `${title} - Table`, element: table });
+    }
+
+    if (chart) {
+      targets.push({ title: `${title} - Chart`, element: chart });
+    } else if (cards) {
+      targets.push({ title: `${title} - Summary`, element: cards });
+    }
   });
+
+  return targets;
 }
 
 async function addElementAsLandscapePage(doc, html2canvas, options) {
-  const {
-    element,
-    title,
-    reportTitle,
-    dateLabel,
-    generatedAtLabel,
-    exportId
-  } = options;
-
+  const { element, title, reportTitle, dateLabel } = options;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 10;
@@ -627,13 +601,10 @@ async function addElementAsLandscapePage(doc, html2canvas, options) {
   const contentWidth = pageWidth - (margin * 2);
 
   const canvas = await html2canvas(element, {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#0b1220',
     scale: 2,
     useCORS: true,
-    logging: false,
-    onclone: (clonedDoc) => {
-      if (exportId) styleClonedSectionForPdf(clonedDoc, exportId);
-    }
+    logging: false
   });
 
   const imageData = canvas.toDataURL('image/png', 0.95);
@@ -650,17 +621,13 @@ async function addElementAsLandscapePage(doc, html2canvas, options) {
   const y = contentY + ((contentHeight - drawHeight) / 2);
 
   doc.addPage('a4', 'landscape');
-  addPdfPageHeader(doc, reportTitle, pageWidth, generatedAtLabel);
+  addPdfPageHeader(doc, reportTitle, pageWidth);
   addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text(title, margin, 23);
-  doc.setDrawColor(203, 213, 225);
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(margin, contentY, contentWidth, contentHeight, 2, 2, 'FD');
   doc.addImage(imageData, 'PNG', x, y, drawWidth, drawHeight, undefined, 'FAST');
 }
-
 
 function writeKeyValueList(doc, items, y) {
   doc.setFontSize(10);
@@ -754,15 +721,8 @@ function setupDashboardDateTime() {
 
 async function exportDashboardPdf() {
   const jsPDF = getDashboardJsPdf();
-  const html2canvas = getDashboardHtml2Canvas();
-
   if (!jsPDF) {
     alert('PDF library not loaded. Please refresh and try again.');
-    return;
-  }
-
-  if (!html2canvas) {
-    alert('Dashboard capture library not loaded. Please refresh and try again.');
     return;
   }
 
@@ -794,25 +754,22 @@ async function exportDashboardPdf() {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const dateLabel = now.toLocaleDateString();
-    const generatedAtLabel = `Generated: ${now.toLocaleString()}`;
 
-    addPdfPageHeader(doc, reportTitle, pageWidth, generatedAtLabel);
+    addPdfPageHeader(doc, reportTitle, pageWidth);
     addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('Dashboard Visual Export', 12, 28);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text(generatedAtLabel, 12, 36);
+    doc.text(`Generated on: ${now.toLocaleString()}`, 12, 36);
 
     for (const target of targets) {
       await addElementAsLandscapePage(doc, html2canvas, {
         element: target.element,
         title: target.title,
         reportTitle,
-        dateLabel,
-        generatedAtLabel,
-        exportId: target.exportId
+        dateLabel
       });
     }
 
