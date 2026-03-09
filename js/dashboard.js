@@ -531,15 +531,20 @@ function getDashboardJsPdf() {
   return window.jspdf?.jsPDF || null;
 }
 
-function addPdfTitle(doc, title, subtitle = '') {
+function addPdfPageHeader(doc, title, pageWidth) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text(title, 12, 16);
+  doc.text(title, 12, 14);
+  doc.setDrawColor(148, 163, 184);
+  doc.line(10, 18, pageWidth - 10, 18);
+}
+
+function addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  if (subtitle) doc.text(subtitle, 12, 22);
-  doc.setDrawColor(148, 163, 184);
-  doc.line(10, 26, 200, 26);
+  const footerText = `Date: ${dateLabel}`;
+  const textWidth = doc.getTextWidth(footerText);
+  doc.text(footerText, pageWidth - textWidth - 10, pageHeight - 8);
 }
 
 function writeKeyValueList(doc, items, y) {
@@ -573,6 +578,53 @@ function renderInspectionSummaryRows(rows = []) {
   });
 }
 
+function paginateTable(doc, opts) {
+  const {
+    title,
+    headers,
+    rows,
+    widths,
+    startY,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  } = opts;
+
+  let y = startY;
+
+  const addPage = () => {
+    doc.addPage('a4', 'landscape');
+    addPdfPageHeader(doc, reportTitle, pageWidth);
+    addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
+    y = 24;
+  };
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(title, 12, y);
+  y += 8;
+
+  addTableRow(doc, headers, widths, y, true);
+  y += 8;
+
+  rows.forEach((row) => {
+    if (y > pageHeight - 18) {
+      addPage();
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(title, 12, y);
+      y += 8;
+      addTableRow(doc, headers, widths, y, true);
+      y += 8;
+    }
+    addTableRow(doc, row, widths, y);
+    y += 8;
+  });
+
+  return y + 4;
+}
+
 function setupDashboardDateTime() {
   const el = document.getElementById('dashboardDateTime');
   if (!el) return;
@@ -592,19 +644,128 @@ function exportDashboardPdf() {
     return;
   }
 
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
   const now = new Date();
   const today = todayISO();
-  addPdfTitle(doc, 'ATR 2025 | Inspection Department Daily Progress Report', `Generated on ${now.toLocaleString()}`);
+  const reportTitle = 'Inspection Department Daily Progress Report | ATR 2026';
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const dateLabel = now.toLocaleDateString();
 
-  let y = 40;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.text('Dashboard export generated successfully.', 12, y);
-  y += 8;
-  doc.text('Note: Firebase loaded data is intentionally excluded in this PDF.', 12, y);
+  addPdfPageHeader(doc, reportTitle, pageWidth);
+  addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
 
-  doc.save(`ATR2025_Daily_Progress_Report_${today}.pdf`);
+  const allInspections = getCollection('inspections');
+  const vesselRows = allInspections.filter((r) => r.equipment_type === 'Vessel');
+  const pipelineRows = allInspections.filter((r) => r.equipment_type === 'Pipeline');
+  const steamTrapRows = allInspections.filter((r) => r.equipment_type === 'Steam Trap');
+  const requisitionRtRows = getCollection('requisitions').filter((r) => (r.type || r.module_type) === 'RT');
+  const observationRows = getCollection('observations');
+
+  const vesselTableRows = renderInspectionSummaryRows(vesselRows);
+  const pipelineTableRows = renderInspectionSummaryRows(pipelineRows);
+  const steamTrapTableRows = renderInspectionSummaryRows(steamTrapRows);
+  const requisitionTableRows = Object.entries(groupByUnit(requisitionRtRows))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([unit, unitRows]) => {
+      const summary = computeSummary(unitRows, { mode: 'requisition' });
+      return [unit, summary.total, summary.planned, summary.completed, `${summary.percent}%`];
+    });
+  const observationTableRows = observationRows.map((r) => [
+    r.unit_name || r.unit || '-',
+    r.tag_number || r.tag || '-',
+    r.observation || r.description || '-',
+    r.status || '-',
+    String(r.timestamp || r.observation_datetime || '').slice(0, 10) || '-'
+  ]);
+
+  let y = 24;
+  y = paginateTable(doc, {
+    title: 'Vessel Dashboard',
+    headers: ['Unit', 'Planned', 'Opportunity', 'In Progress', 'Completed', 'Completed Today'],
+    rows: vesselTableRows,
+    widths: [58, 28, 28, 35, 30, 35],
+    startY: y,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  });
+
+  if (y > pageHeight - 40) {
+    doc.addPage('a4', 'landscape');
+    addPdfPageHeader(doc, reportTitle, pageWidth);
+    addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
+    y = 24;
+  }
+
+  y = paginateTable(doc, {
+    title: 'Pipeline Dashboard',
+    headers: ['Unit', 'Planned', 'Opportunity', 'In Progress', 'Completed', 'Completed Today'],
+    rows: pipelineTableRows,
+    widths: [58, 28, 28, 35, 30, 35],
+    startY: y,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  });
+
+  if (y > pageHeight - 40) {
+    doc.addPage('a4', 'landscape');
+    addPdfPageHeader(doc, reportTitle, pageWidth);
+    addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
+    y = 24;
+  }
+
+  y = paginateTable(doc, {
+    title: 'Steam Trap Dashboard',
+    headers: ['Unit', 'Planned', 'Opportunity', 'In Progress', 'Completed', 'Completed Today'],
+    rows: steamTrapTableRows,
+    widths: [58, 28, 28, 35, 30, 35],
+    startY: y,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  });
+
+  doc.addPage('a4', 'landscape');
+  addPdfPageHeader(doc, reportTitle, pageWidth);
+  addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
+
+  y = paginateTable(doc, {
+    title: 'Requisition Dashboard (RT)',
+    headers: ['Unit', 'Total Requisitions', 'Planned', 'Completed', 'Progress %'],
+    rows: requisitionTableRows,
+    widths: [70, 45, 35, 35, 35],
+    startY: 24,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  });
+
+  if (y > pageHeight - 40) {
+    doc.addPage('a4', 'landscape');
+    addPdfPageHeader(doc, reportTitle, pageWidth);
+    addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
+    y = 24;
+  }
+
+  paginateTable(doc, {
+    title: 'Observation Dashboard',
+    headers: ['Unit', 'Tag', 'Observation', 'Status', 'Date'],
+    rows: observationTableRows,
+    widths: [35, 30, 120, 35, 35],
+    startY: y,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  });
+
+  doc.save(`ATR2026_Daily_Progress_Report_${today}.pdf`);
 }
 
 function setupDashboardExportButton() {
