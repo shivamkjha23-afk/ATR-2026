@@ -531,6 +531,7 @@ function getDashboardJsPdf() {
   return window.jspdf?.jsPDF || null;
 }
 
+
 function addPdfPageHeader(doc, title, pageWidth) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
@@ -639,13 +640,8 @@ function setupDashboardDateTime() {
 
 async function exportDashboardPdf() {
   const jsPDF = getDashboardJsPdf();
-  const html2canvas = getDashboardHtml2Canvas();
   if (!jsPDF) {
     alert('PDF library not loaded. Please refresh and try again.');
-    return;
-  }
-  if (!html2canvas) {
-    alert('Image capture library not loaded. Please refresh and try again.');
     return;
   }
 
