@@ -585,86 +585,26 @@ function setupDashboardDateTime() {
   window.setInterval(render, 1000);
 }
 
-async function exportDashboardPdf() {
+function exportDashboardPdf() {
   const jsPDF = getDashboardJsPdf();
   if (!jsPDF) {
     alert('PDF library not loaded. Please refresh and try again.');
     return;
   }
 
-  if (typeof html2canvas !== 'function') {
-    alert('Dashboard capture library not loaded. Please refresh and try again.');
-    return;
-  }
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const now = new Date();
+  const today = todayISO();
+  addPdfTitle(doc, 'ATR 2025 | Inspection Department Daily Progress Report', `Generated on ${now.toLocaleString()}`);
 
-  const captureTarget = document.querySelector('.content');
-  if (!captureTarget) {
-    alert('Dashboard content not found.');
-    return;
-  }
+  let y = 40;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.text('Dashboard export generated successfully.', 12, y);
+  y += 8;
+  doc.text('Note: Firebase loaded data is intentionally excluded in this PDF.', 12, y);
 
-  const exportBtn = document.getElementById('exportDashboardPdfBtn');
-  if (exportBtn) {
-    exportBtn.disabled = true;
-    exportBtn.textContent = 'Exporting...';
-  }
-
-  try {
-    await new Promise((resolve) => window.requestAnimationFrame(resolve));
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    const canvas = await html2canvas(captureTarget, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff'
-    });
-
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.text('ATR 2026 | Inspection Department', 12, 14);
-    doc.setFontSize(13);
-    doc.text('Daily Progress Report', 12, 21);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text(new Date().toLocaleString(), pageWidth - 12, 14, { align: 'right' });
-
-    const imgData = canvas.toDataURL('image/png');
-    const marginX = 8;
-    const startY = 26;
-    const usableWidth = pageWidth - (marginX * 2);
-    const usableHeightFirstPage = pageHeight - startY - 8;
-    const imgHeight = (canvas.height * usableWidth) / canvas.width;
-
-    let printedHeight = 0;
-    let remainingHeight = imgHeight;
-    let pageIndex = 0;
-
-    while (remainingHeight > 0) {
-      if (pageIndex > 0) {
-        doc.addPage();
-      }
-      const chunkHeight = pageIndex === 0 ? Math.min(remainingHeight, usableHeightFirstPage) : Math.min(remainingHeight, pageHeight - 16);
-      const positionY = pageIndex === 0 ? startY : 8;
-      doc.addImage(imgData, 'PNG', marginX, positionY - printedHeight, usableWidth, imgHeight, undefined, 'FAST');
-      printedHeight += chunkHeight;
-      remainingHeight -= chunkHeight;
-      pageIndex += 1;
-    }
-
-    doc.save(`ATR2026_Dashboard_${todayISO()}.pdf`);
-  } catch (err) {
-    console.error('Dashboard PDF export failed:', err);
-    alert('Dashboard export failed. Please try again.');
-  } finally {
-    if (exportBtn) {
-      exportBtn.disabled = false;
-      exportBtn.textContent = 'Export Dashboard + Observations PDF';
-    }
-  }
+  doc.save(`ATR2025_Daily_Progress_Report_${today}.pdf`);
 }
 
 function setupDashboardExportButton() {
