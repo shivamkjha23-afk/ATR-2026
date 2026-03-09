@@ -573,111 +573,100 @@ function renderInspectionSummaryRows(rows = []) {
   });
 }
 
-function exportDashboardPdf() {
+function setupDashboardDateTime() {
+  const el = document.getElementById('dashboardDateTime');
+  if (!el) return;
+
+  const render = () => {
+    el.textContent = new Date().toLocaleString();
+  };
+
+  render();
+  window.setInterval(render, 1000);
+}
+
+async function exportDashboardPdf() {
   const jsPDF = getDashboardJsPdf();
   if (!jsPDF) {
     alert('PDF library not loaded. Please refresh and try again.');
     return;
   }
 
-  const inspections = getCollection('inspections');
-  const observations = getCollection('observations');
-  const requisitions = getCollection('requisitions').filter((r) => (r.type || r.module_type) === 'RT');
-  const daySummary = calculateProgress(inspections);
-  const today = todayISO();
-  const todayObservationCompleted = observations.filter((r) => String(r.timestamp || '').slice(0, 10) === today && r.status === 'Completed').length;
-
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  addPdfTitle(doc, 'ATR-2026 Dashboard Export', `Generated on ${new Date().toLocaleString()}`);
-
-  let y = 34;
-  y = writeKeyValueList(doc, [
-    { label: 'Today\'s Inspection Progress', value: daySummary.todaysProgress },
-    { label: 'Today\'s Observation Completed', value: todayObservationCompleted },
-    { label: 'Total Inspections', value: daySummary.total },
-    { label: 'Completed', value: daySummary.completed },
-    { label: 'In Progress', value: daySummary.inProgress },
-    { label: 'Not Started', value: daySummary.notStarted }
-  ], y);
-
-  y += 3;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Inspection Dashboard Snapshot', 12, y);
-  y += 7;
-
-  const inspectionRows = renderInspectionSummaryRows(inspections);
-  const inspectionHeaders = ['Unit', 'Planned', 'Opportunity', 'In Prog.', 'Completed', 'Today'];
-  const inspectionWidths = [58, 20, 24, 24, 24, 20];
-  addTableRow(doc, inspectionHeaders, inspectionWidths, y, true);
-  y += 8;
-
-  inspectionRows.forEach((row) => {
-    if (y > 276) {
-      doc.addPage();
-      addPdfTitle(doc, 'ATR-2026 Dashboard Export (cont.)');
-      y = 34;
-      addTableRow(doc, inspectionHeaders, inspectionWidths, y, true);
-      y += 8;
-    }
-    addTableRow(doc, row, inspectionWidths, y);
-    y += 8;
-  });
-
-  if (y > 250) {
-    doc.addPage();
-    addPdfTitle(doc, 'ATR-2026 Dashboard Export (cont.)');
-    y = 34;
+  if (typeof html2canvas !== 'function') {
+    alert('Dashboard capture library not loaded. Please refresh and try again.');
+    return;
   }
 
-  const requisitionSummary = computeSummary(requisitions, { mode: 'requisition' });
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('Requisition (RT) Summary', 12, y);
-  y += 7;
-  y = writeKeyValueList(doc, [
-    { label: 'Total RT Requisitions', value: requisitionSummary.total },
-    { label: 'Completed', value: requisitionSummary.completed },
-    { label: 'In Progress', value: requisitionSummary.inProgress },
-    { label: 'Progress %', value: `${requisitionSummary.percent || 0}%` }
-  ], y);
+  const captureTarget = document.querySelector('.app-shell');
+  if (!captureTarget) {
+    alert('Dashboard content not found.');
+    return;
+  }
 
-  doc.addPage();
-  addPdfTitle(doc, 'Observation Dashboard (Continuation)', `Date ${today}`);
-  y = 34;
+  const exportBtn = document.getElementById('exportDashboardPdfBtn');
+  if (exportBtn) {
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Exporting...';
+  }
 
-  const observationSummary = computeSummary(observations, { mode: 'observation' });
-  y = writeKeyValueList(doc, [
-    { label: 'Total Observations', value: observationSummary.total },
-    { label: 'In Progress', value: observationSummary.inProgress },
-    { label: 'Completed', value: observationSummary.completed }
-  ], y);
+  const exportContainer = document.createElement('div');
+  exportContainer.style.background = '#ffffff';
+  exportContainer.style.color = '#0f172a';
+  exportContainer.style.padding = '10px';
+  exportContainer.style.width = '1200px';
 
-  y += 4;
-  const obsHeaders = ['Tag', 'Unit', 'Status', 'Observed On', 'Recommendation'];
-  const obsWidths = [30, 32, 24, 28, 76];
-  addTableRow(doc, obsHeaders, obsWidths, y, true);
-  y += 8;
+  const titleWrap = document.createElement('div');
+  titleWrap.style.display = 'flex';
+  titleWrap.style.justifyContent = 'space-between';
+  titleWrap.style.alignItems = 'flex-start';
+  titleWrap.style.marginBottom = '12px';
+  titleWrap.innerHTML = `
+    <div>
+      <div style="font-size:32px;font-weight:800;line-height:1.1;">ATR 2026 | Inspection Department</div>
+      <div style="font-size:20px;font-weight:700;line-height:1.2;">Daily Progress Report</div>
+    </div>
+    <div style="font-size:14px;font-weight:500;">${new Date().toLocaleString()}</div>
+  `;
 
-  observations.forEach((row) => {
-    if (y > 276) {
-      doc.addPage();
-      addPdfTitle(doc, 'Observation Dashboard (cont.)');
-      y = 34;
-      addTableRow(doc, obsHeaders, obsWidths, y, true);
-      y += 8;
+  const cloned = captureTarget.cloneNode(true);
+  cloned.querySelectorAll('#exportDashboardPdfBtn').forEach((el) => el.remove());
+  cloned.querySelectorAll('script').forEach((el) => el.remove());
+
+  exportContainer.appendChild(titleWrap);
+  exportContainer.appendChild(cloned);
+  document.body.appendChild(exportContainer);
+
+  try {
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 450));
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+    await doc.html(exportContainer, {
+      margin: [8, 8, 8, 8],
+      autoPaging: 'text',
+      html2canvas: {
+        scale: 0.72,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 1280
+      },
+      callback: (pdf) => {
+        pdf.save(`ATR2026_Dashboard_${todayISO()}.pdf`);
+      }
+    });
+  } catch (err) {
+    console.error('Dashboard PDF export failed:', err);
+    alert('Dashboard export failed. Please try again.');
+  } finally {
+    exportContainer.remove();
+    if (exportBtn) {
+      exportBtn.disabled = false;
+      exportBtn.textContent = 'Export Dashboard + Observations PDF';
     }
-    addTableRow(doc, [
-      row.tag_number || row.id || '-',
-      row.unit || '-',
-      row.status || '-',
-      String(row.timestamp || '').slice(0, 10) || '-',
-      row.recommendation || '-'
-    ], obsWidths, y);
-    y += 8;
-  });
-
-  doc.save(`ATR2026_Dashboard_Observation_${today}.pdf`);
+  }
 }
 
 function setupDashboardExportButton() {
@@ -690,6 +679,7 @@ window.addEventListener('atr-db-updated', renderDashboard);
 window.addEventListener('DOMContentLoaded', () => {
   if (document.body.dataset.page === 'dashboard') {
     renderDashboard();
+    setupDashboardDateTime();
     setupDashboardExportButton();
   }
 });
