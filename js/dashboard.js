@@ -539,6 +539,12 @@ function addPdfPageHeader(doc, title, pageWidth) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.text(title, 12, 14);
+  if (generatedAt) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const timeTextWidth = doc.getTextWidth(generatedAt);
+    doc.text(generatedAt, pageWidth - timeTextWidth - 12, 14);
+  }
   doc.setDrawColor(148, 163, 184);
   doc.line(10, 18, pageWidth - 10, 18);
 }
