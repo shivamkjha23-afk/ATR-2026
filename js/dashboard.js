@@ -585,27 +585,62 @@ function addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel, timeLabel = '')
 
 function collectDashboardSummaryData() {
   const inspections = getCollection('inspections');
+  const observations = getCollection('observations');
+  const requisitions = getCollection('requisitions');
+  const rtRequisitions = requisitions.filter((row) => (row.type || row.module_type) === 'RT');
 
   const getSummaryByType = (equipmentType) => computeSummary(
     inspections.filter((row) => row.equipment_type === equipmentType),
     { mode: 'inspection' }
   );
 
+  const observationSummary = computeSummary(observations, { mode: 'observation' });
+  const rtSummary = computeSummary(rtRequisitions, { mode: 'requisition' });
+  const vesselSummary = getSummaryByType('Vessel');
+  const pipelineSummary = getSummaryByType('Pipeline');
+  const steamTrapSummary = getSummaryByType('Steam Trap');
+
   return [
     {
       title: 'Vessel',
-      summary: getSummaryByType('Vessel'),
-      includeOpportunity: true
+      metrics: [
+        ['Planned', vesselSummary.planned || 0],
+        ['Opportunity', vesselSummary.opportunity || 0],
+        ['In Progress', vesselSummary.inProgress || 0],
+        ['Completed', vesselSummary.completed || 0]
+      ]
     },
     {
       title: 'Pipeline',
-      summary: getSummaryByType('Pipeline'),
-      includeOpportunity: false
+      metrics: [
+        ['Planned', pipelineSummary.planned || 0],
+        ['In Progress', pipelineSummary.inProgress || 0],
+        ['Completed', pipelineSummary.completed || 0]
+      ]
     },
     {
       title: 'Steam Trap',
-      summary: getSummaryByType('Steam Trap'),
-      includeOpportunity: false
+      metrics: [
+        ['Planned', steamTrapSummary.planned || 0],
+        ['In Progress', steamTrapSummary.inProgress || 0],
+        ['Completed', steamTrapSummary.completed || 0]
+      ]
+    },
+    {
+      title: 'Observation',
+      metrics: [
+        ['Total', observationSummary.total || 0],
+        ['In Progress', observationSummary.inProgress || 0],
+        ['Completed', observationSummary.completed || 0]
+      ]
+    },
+    {
+      title: 'Requisition RT',
+      metrics: [
+        ['Job Size', rtSummary.total || 0],
+        ['Completed', rtSummary.completed || 0],
+        ['Progress %', `${rtSummary.percent || 0}%`]
+      ]
     }
   ];
 }
@@ -620,12 +655,7 @@ function addSummaryCardToPdf(doc, card, x, y, width, height) {
   doc.setTextColor(15, 23, 42);
   doc.text(`${card.title} Summary`, x + 4, y + 8);
 
-  const metrics = [
-    ['Planned', card.summary.planned || 0],
-    card.includeOpportunity ? ['Opportunity', card.summary.opportunity || 0] : null,
-    ['In Progress', card.summary.inProgress || 0],
-    ['Completed', card.summary.completed || 0]
-  ].filter(Boolean);
+  const metrics = card.metrics || [];
 
   let lineY = y + 15;
   metrics.forEach(([label, value]) => {
@@ -650,14 +680,19 @@ function addDashboardSummaryCardsPage(doc, reportTitle, pageWidth, pageHeight, d
 
   const cards = collectDashboardSummaryData();
   const marginX = 12;
-  const cardGap = 8;
+  const cardGap = 6;
   const totalWidth = pageWidth - (marginX * 2);
-  const cardWidth = (totalWidth - (cardGap * (cards.length - 1))) / cards.length;
-  const cardY = 44;
-  const cardHeight = 38;
+  const cardsPerRow = Math.min(3, cards.length);
+  const cardWidth = (totalWidth - (cardGap * (cardsPerRow - 1))) / cardsPerRow;
+  const cardStartY = 40;
+  const cardHeight = 42;
+  const rowGap = 8;
 
   cards.forEach((card, idx) => {
-    const cardX = marginX + (idx * (cardWidth + cardGap));
+    const row = Math.floor(idx / cardsPerRow);
+    const col = idx % cardsPerRow;
+    const cardX = marginX + (col * (cardWidth + cardGap));
+    const cardY = cardStartY + (row * (cardHeight + rowGap));
     addSummaryCardToPdf(doc, card, cardX, cardY, cardWidth, cardHeight);
   });
 }
@@ -697,7 +732,8 @@ async function addElementAsLandscapePage(doc, html2canvas, options) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 10;
-  const contentY = 26;
+  const sectionTitleY = 28;
+  const contentY = 34;
   const contentHeight = pageHeight - contentY - 10;
   const contentWidth = pageWidth - (margin * 2);
 
@@ -732,14 +768,14 @@ async function addElementAsLandscapePage(doc, html2canvas, options) {
   }
 
   const x = (pageWidth - drawWidth) / 2;
-  const y = contentY + ((contentHeight - drawHeight) / 2);
+  const y = contentY;
 
   doc.addPage('a4', 'landscape');
   addPdfPageHeader(doc, reportTitle, pageWidth, generatedAt);
   addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel, timeLabel);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text(title, margin, 23);
+  doc.text(title, margin, sectionTitleY);
   doc.addImage(imageData, 'PNG', x, y, drawWidth, drawHeight, undefined, 'FAST');
 }
 
