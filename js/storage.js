@@ -450,14 +450,34 @@ async function saveImageDataAtPath(path, base64DataOrBlob) {
     }
   }
 
-  const db = readDB();
-  db.images[path] = persistedImage;
-  saveDB(db);
+  runtimeDB.images = runtimeDB.images || {};
+  runtimeDB.images[path] = persistedImage;
+  runtimeDB._meta = runtimeDB._meta || {};
+  runtimeDB._meta.last_updated = nowStamp();
+  persistLocalCache();
   return persistedImage;
 }
 
+async function saveMultipleImages(files = []) {
+  const results = {};
+
+  const uploads = files.map(async ({ fileName, data }) => {
+    const path = `data/images/${generateId('IMG')}-${fileName}`;
+    const url = await saveImageDataAtPath(path, data);
+    results[path] = url;
+    return { path, url };
+  });
+
+  await Promise.all(uploads);
+  if (!suppressSync) scheduleAutoSync();
+  return results;
+}
+
 async function saveImageData(fileName, base64Data) {
-  return saveImageDataAtPath(`data/images/${generateId('IMG')}-${fileName}`, base64Data);
+  const path = `data/images/${generateId('IMG')}-${fileName}`;
+  const url = await saveImageDataAtPath(path, base64Data);
+  if (!suppressSync) scheduleAutoSync();
+  return url;
 }
 
 function getImageData(path) {
@@ -530,6 +550,7 @@ function hasMeaningfulRuntimeData(db) {
 
 async function preventBlankCloudOverwrite(localPayload) {
   if (hasMeaningfulRuntimeData(localPayload)) return localPayload;
+  if (syncInFlight) return localPayload;
 
   const remote = await readCloudRuntimeData();
   if (!remote || !hasMeaningfulRuntimeData(remote)) return localPayload;
@@ -586,23 +607,36 @@ async function initializeData() {
     const cloudData = await readCloudRuntimeData();
 
     if (cloudData) {
-      const cloudStamp = new Date(cloudData._meta?.last_updated || 0).getTime();
-      const localStamp = new Date(runtimeDB._meta?.last_updated || 0).getTime();
+      const cloudHasData = hasMeaningfulRuntimeData(cloudData);
+      const localHasData = hasMeaningfulRuntimeData(runtimeDB);
+      const cloudStamp = new Date(cloudData._meta?.last_updated || '').getTime();
+      const localStamp = new Date(runtimeDB._meta?.last_updated || '').getTime();
+      const cloudStampValid = Number.isFinite(cloudStamp) && cloudStamp > 0;
+      const localStampValid = Number.isFinite(localStamp) && localStamp > 0;
 
-      if (!localCacheLoaded || cloudStamp >= localStamp) {
+      const useCloud = !localCacheLoaded
+        || (cloudHasData && !localHasData)
+        || (cloudStampValid && (!localStampValid || cloudStamp >= localStamp));
+
+      if (useCloud) {
         runtimeDB = clone({ ...DB_TEMPLATE, ...cloudData });
         ensureRuntimeDefaults();
         setSyncStatus({ ok: true, message: 'Loaded data from Firebase cloud.' });
       } else {
         persistLocalCache();
-        scheduleAutoSync();
+        if (localHasData) scheduleAutoSync();
         setSyncStatus({ ok: true, message: 'Loaded latest data from local cache and scheduled Firebase sync.' });
       }
       return;
     }
 
-    await writeCloudRuntimeData(buildDatabaseFilesPayload());
-    setSyncStatus({ ok: true, message: 'Initialized Firebase cloud document.' });
+    const localPayload = buildDatabaseFilesPayload();
+    if (hasMeaningfulRuntimeData(localPayload)) {
+      await writeCloudRuntimeData(localPayload);
+      setSyncStatus({ ok: true, message: 'Initialized Firebase cloud document from local cache.' });
+    } else {
+      setSyncStatus({ ok: true, message: 'Cloud document not found; waiting for first local data save.' });
+    }
   } catch (err) {
     setSyncStatus({ ok: false, message: `Firebase init fallback (local cache in use): ${err.message}` });
     ensureRuntimeDefaults();
