@@ -738,14 +738,10 @@ async function addObservationListPages(doc, options = {}) {
     generatedAt
   } = options;
   const rows = getCollection('observations');
-  const headers = ['Tag', 'Unit', 'Location', 'Observation', 'Recommendation', 'Status'];
-  const widths = [24, 24, 30, 97, 78, 24];
+  const headers = ['Tag', 'Unit', 'Location', 'Observation', 'Recommendation', 'Status', 'Image'];
+  const widths = [24, 24, 30, 89, 70, 22, 18];
   const startY = 34;
   const bottomLimit = pageHeight - 14;
-
-  const observationColIdx = 3;
-  const imageGap = 2;
-  const imageHeight = 18;
 
   let y = startY;
 
@@ -947,6 +943,7 @@ function styleExportTables(container) {
     table.style.background = '#ffffff';
     table.style.color = '#0f172a';
     table.style.borderCollapse = 'collapse';
+    table.style.tableLayout = 'fixed';
     table.style.fontSize = '16px';
     table.style.lineHeight = '1.25';
   });
@@ -958,6 +955,8 @@ function styleExportTables(container) {
     cell.style.border = '1px solid #cbd5e1';
     cell.style.fontSize = '15px';
     cell.style.padding = '6px';
+    cell.style.overflowWrap = 'anywhere';
+    cell.style.wordBreak = 'break-word';
   });
 
   const dataCells = Array.from(container.querySelectorAll('td'));
@@ -967,6 +966,8 @@ function styleExportTables(container) {
     cell.style.border = '1px solid #cbd5e1';
     cell.style.fontSize = '15px';
     cell.style.padding = '5px';
+    cell.style.overflowWrap = 'anywhere';
+    cell.style.wordBreak = 'break-word';
   });
 
   const oddRows = Array.from(container.querySelectorAll('tbody tr:nth-child(odd) td'));
