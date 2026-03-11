@@ -738,10 +738,14 @@ async function addObservationListPages(doc, options = {}) {
     generatedAt
   } = options;
   const rows = getCollection('observations');
-  const headers = ['Tag', 'Unit', 'Location', 'Observation', 'Recommendation', 'Status', 'Image'];
-  const widths = [24, 24, 30, 78, 78, 24, 19];
+  const headers = ['Tag', 'Unit', 'Location', 'Observation', 'Recommendation', 'Status'];
+  const widths = [24, 24, 30, 97, 78, 24];
   const startY = 34;
   const bottomLimit = pageHeight - 14;
+
+  const observationColIdx = 3;
+  const imageGap = 2;
+  const imageHeight = 18;
 
   let y = startY;
 
@@ -830,6 +834,7 @@ async function addObservationListPages(doc, options = {}) {
     y += rowHeight;
   }
 }
+
 
 
 async function waitForDashboardVisualStability() {
