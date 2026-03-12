@@ -739,7 +739,7 @@ async function addObservationListPages(doc, options = {}) {
   } = options;
   const rows = getCollection('observations');
   const headers = ['Tag', 'Unit', 'Location', 'Observation', 'Recommendation', 'Status', 'Image'];
-  const widths = [24, 24, 30, 89, 70, 22, 18];
+  const widths = [23, 23, 28, 72, 57, 20, 54];
   const startY = 34;
   const bottomLimit = pageHeight - 14;
 
@@ -781,7 +781,7 @@ async function addObservationListPages(doc, options = {}) {
 
   drawHeader();
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(16);
+  doc.setFontSize(12);
 
   if (!rows.length) {
     doc.text('No observations available.', 12, y + 2);
@@ -792,14 +792,14 @@ async function addObservationListPages(doc, options = {}) {
     const lines = getRowLines(row);
     const hasImage = Array.isArray(row.images) && row.images.length > 0;
     const lineCount = Math.max(1, ...lines.map((line) => line.length));
-    const textRowHeight = Math.max(16, (lineCount * 7) + 3);
-    const rowHeight = hasImage ? Math.max(textRowHeight, 26) : textRowHeight;
+    const textRowHeight = Math.max(18, (lineCount * 5.6) + 4);
+    const rowHeight = hasImage ? Math.max(textRowHeight, 32) : textRowHeight;
 
     if ((y + rowHeight) > bottomLimit) {
       y = startY;
       drawHeader();
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(16);
+      doc.setFontSize(12);
     }
 
     let x = 10;
@@ -943,7 +943,8 @@ function styleExportTables(container) {
     table.style.background = '#ffffff';
     table.style.color = '#0f172a';
     table.style.borderCollapse = 'collapse';
-    table.style.tableLayout = 'fixed';
+    table.style.tableLayout = 'auto';
+    table.style.width = '100%';
     table.style.fontSize = '16px';
     table.style.lineHeight = '1.25';
   });
@@ -955,8 +956,8 @@ function styleExportTables(container) {
     cell.style.border = '1px solid #cbd5e1';
     cell.style.fontSize = '16px';
     cell.style.padding = '6px';
-    cell.style.overflowWrap = 'anywhere';
-    cell.style.wordBreak = 'break-word';
+    cell.style.overflowWrap = 'normal';
+    cell.style.wordBreak = 'normal';
   });
 
   const dataCells = Array.from(container.querySelectorAll('td'));
@@ -987,6 +988,9 @@ function styleExportTables(container) {
     wrap.style.border = '1px solid #cbd5e1';
     wrap.style.borderRadius = '8px';
     wrap.style.padding = '2px';
+    wrap.style.overflow = 'visible';
+    wrap.style.width = '100%';
+    wrap.style.minWidth = '100%';
   });
 }
 
