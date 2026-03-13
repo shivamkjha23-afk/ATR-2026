@@ -113,7 +113,6 @@ function renderBarChart(canvasId, labels, plannedData, completedData, percentDat
     data: { labels, datasets },
     options: {
       responsive: true,
-      maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       scales: {
         y: { beginAtZero: true },
@@ -288,7 +287,6 @@ function renderInspectionChartWithOpportunity(canvasId, labels, plannedData, opp
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       scales: {
         y: { beginAtZero: true },
@@ -842,7 +840,8 @@ async function waitForDashboardVisualStability() {
 
 function collectDashboardExportTargets(root) {
   const sections = Array.from(root.querySelectorAll('.table-card'));
-  const combined = [];
+  const tables = [];
+  const charts = [];
 
   sections.forEach((section) => {
     const title = section.querySelector('h2')?.textContent?.trim() || 'Dashboard Section';
@@ -850,12 +849,18 @@ function collectDashboardExportTargets(root) {
     const chart = section.querySelector('.chart-card');
     const cards = section.querySelector('.cards-grid');
 
-    if (table || chart || cards) {
-      combined.push({ title: `${title} - Table + Chart`, element: section });
+    if (table) {
+      tables.push({ title: `${title} - Table`, element: table });
+    }
+
+    if (chart) {
+      charts.push({ title: `${title} - Chart`, element: chart });
+    } else if (cards) {
+      charts.push({ title: `${title} - Summary`, element: cards });
     }
   });
 
-  return { combined };
+  return { tables, charts };
 }
 
 async function addElementAsLandscapePage(doc, html2canvas, options) {
@@ -970,6 +975,430 @@ function styleExportTables(container) {
   oddRows.forEach((cell) => {
     cell.style.background = '#f8fafc';
   });
+
+  const totalCells = Array.from(container.querySelectorAll('tfoot td'));
+  totalCells.forEach((cell) => {
+    cell.style.background = '#e2e8f0';
+    cell.style.fontWeight = '700';
+  });
+
+  const wrappers = Array.from(container.querySelectorAll('.table-wrap, .vessel-progress-wrap'));
+  wrappers.forEach((wrap) => {
+    wrap.style.background = '#ffffff';
+    wrap.style.border = '1px solid #cbd5e1';
+    wrap.style.borderRadius = '8px';
+    wrap.style.padding = '2px';
+    wrap.style.overflow = 'visible';
+    wrap.style.width = '100%';
+    wrap.style.minWidth = '100%';
+  });
+}
+
+function styleExportChartCard(container) {
+  const charts = Array.from(container.querySelectorAll('.chart-card'));
+  charts.forEach((chartCard) => {
+    chartCard.style.background = '#ffffff';
+    chartCard.style.border = '1px solid #cbd5e1';
+    chartCard.style.borderRadius = '12px';
+  });
+}
+
+function prepareDashboardExportClone(container, clonedDoc) {
+  clonedDoc.documentElement.setAttribute('data-theme', 'light');
+
+  container.style.background = '#ffffff';
+  container.style.color = '#0f172a';
+  container.style.boxShadow = 'none';
+
+  styleExportSummaryCards(container);
+  styleExportTables(container);
+  styleExportChartCard(container);
+
+  
+function writeKeyValueList(doc, items, y) {
+  doc.setFontSize(10);
+  items.forEach((item) => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${item.label}:`, 12, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(item.value), 70, y);
+    y += 6;
+  });
+  return y;
+}
+
+function addTableRow(doc, columns, widths, y, isHeader = false) {
+  let x = 12;
+  doc.setFont('helvetica', isHeader ? 'bold' : 'normal');
+  columns.forEach((col, idx) => {
+    doc.rect(x, y - 4.5, widths[idx], 7);
+    const text = doc.splitTextToSize(String(col ?? '-'), widths[idx] - 2).slice(0, 2);
+    doc.text(text, x + 1, y);
+    x += widths[idx];
+  });
+}
+
+function renderInspectionSummaryRows(rows = []) {
+  const grouped = groupByUnit(rows);
+  return Object.keys(grouped).sort((a, b) => a.localeCompare(b)).map((unit) => {
+    const s = computeSummary(grouped[unit], { mode: 'inspection' });
+    return [unit, s.planned, s.opportunity, s.inProgress, s.completed, s.todayCompleted];
+  });
+}
+
+function paginateTable(doc, opts) {
+  const {
+    title,
+    headers,
+    rows,
+    widths,
+    startY,
+    pageWidth,
+    pageHeight,
+    reportTitle,
+    dateLabel
+  } = opts;
+
+  let y = startY;
+
+  const addPage = () => {
+    doc.addPage('a4', 'landscape');
+    addPdfPageHeader(doc, reportTitle, pageWidth);
+    addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
+    y = 24;
+  };
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(title, 12, y);
+  y += 8;
+
+  addTableRow(doc, headers, widths, y, true);
+  y += 8;
+
+  rows.forEach((row) => {
+    if (y > pageHeight - 18) {
+      addPage();
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(title, 12, y);
+      y += 8;
+      addTableRow(doc, headers, widths, y, true);
+      y += 8;
+    }
+    addTableRow(doc, row, widths, y);
+    y += 8;
+  });
+
+  return y + 4;
+}
+
+function setupDashboardDateTime() {
+  const el = document.getElementById('dashboardDateTime');
+  if (!el) return;
+
+  const render = () => {
+    el.textContent = new Date().toLocaleString();
+  };
+
+  render();
+  window.setInterval(render, 1000);
+}
+
+async function exportDashboardPdf() {
+  const jsPDF = getDashboardJsPdf();
+  const html2canvasLib = getDashboardHtml2Canvas();
+  if (!jsPDF) {
+    alert('PDF library not loaded. Please refresh and try again.');
+    return;
+  }
+  if (!html2canvasLib) {
+    alert('Export capture library not loaded. Please refresh and try again.');
+    return;
+  }
+
+  const root = document.getElementById('dashboardRoot');
+  if (!root) {
+    alert('Dashboard is not ready for export.');
+    return;
+  }
+
+  const exportBtn = document.getElementById('exportDashboardPdfBtn');
+  if (exportBtn) {
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Preparing PDF...';
+  }
+
+  try {
+    await waitForDashboardVisualStability();
+
+    const targets = collectDashboardExportTargets(root);
+    if (!targets.tables.length && !targets.charts.length) {
+      alert('No dashboard content available to export.');
+      return;
+    }
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+    const now = new Date();
+    const today = todayISO();
+    const reportTitle = 'Inspection Department Daily Progress Report | ATR 2026';
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const exportDateTime = formatExportDateTime(now);
+    const { dateLabel, timeLabel, generatedAt } = exportDateTime;
+
+    addDashboardSummaryCardsPage(doc, reportTitle, pageWidth, pageHeight, dateLabel, timeLabel, generatedAt);
+
+    await addObservationListPages(doc, {
+      reportTitle,
+      pageWidth,
+      pageHeight,
+      dateLabel,
+      timeLabel,
+      generatedAt
+    });
+
+    const orderedTables = [
+      'Vessel Dashboard - Table',
+      'Steam Trap Dashboard - Table',
+      'Pipeline Dashboard - Table',
+      'Requisition Dashboard (RT) - Table'
+    ];
+
+    @@ -91,50 +91,51 @@ function renderBarChart(canvasId, labels, plannedData, completedData, percentDat
+
+  if (DASHBOARD_CHARTS[canvasId]) DASHBOARD_CHARTS[canvasId].destroy();
+
+  const datasets = [
+    { label: 'Planned', data: plannedData, backgroundColor: '#0ea5e9' },
+    { label: 'Completed', data: completedData, backgroundColor: '#22c55e' }
+  ];
+
+  if (percentData.length) {
+    datasets.push({
+      label: '% Completed',
+      data: percentData,
+      type: 'line',
+      yAxisID: 'y1',
+      borderColor: '#f59e0b',
+      backgroundColor: '#f59e0b',
+      tension: 0.2
+    });
+  }
+
+  DASHBOARD_CHARTS[canvasId] = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { beginAtZero: true },
+        y1: percentData.length ? { beginAtZero: true, max: 100, position: 'right', grid: { drawOnChartArea: false } } : undefined
+      }
+    }
+  });
+}
+
+
+function normalizeInspectionType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'planned') return 'planned';
+  if (['opportunity', 'opportunity based', 'opportunity-based'].includes(normalized)) return 'opportunity based';
+  return normalized;
+}
+
+function isCompletedInspection(row) {
+  return row.status === 'Completed' || row.final_status === 'Completed';
+}
+
+function isInProgressInspection(row) {
+  return row.status === 'In Progress' || row.final_status === 'In Progress';
+}
+
+@@ -265,50 +266,51 @@ function renderInspectionChartWithOpportunity(canvasId, labels, plannedData, opp
+    { label: 'Planned', data: plannedData, backgroundColor: '#0ea5e9' },
+    { label: 'Opportunity Based', data: opportunityData, backgroundColor: '#f59e0b' },
+    { label: 'Completed', data: completedData, backgroundColor: '#22c55e' }
+  ];
+
+  if (showPercentLine) {
+    datasets.push({
+      label: '% Completed',
+      data: percentData,
+      type: 'line',
+      yAxisID: 'y1',
+      borderColor: '#a855f7',
+      backgroundColor: '#a855f7',
+      tension: 0.2
+    });
+  }
+
+  DASHBOARD_CHARTS[canvasId] = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { beginAtZero: true },
+        y1: showPercentLine ? { beginAtZero: true, max: 100, position: 'right', grid: { drawOnChartArea: false } } : undefined
+      }
+    }
+  });
+}
+
+function renderSummaryCards(cards = []) {
+  return `<section class="cards-grid">${cards.map((c) => `<article class="card"><h3>${c.label}</h3><p>${c.value}</p></article>`).join('')}</section>`;
+}
+
+function renderUnitTable(headers, rows) {
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('') || '<tr><td colspan="99">No records</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+@@ -412,51 +414,51 @@ function sectionInspection(title, type, chartId, options = {}) {
+  });
+
+  return {
+    html: sectionHtml,
+    chart: () => renderBarChart(chartId, units, plannedData, completedData, showPercentLine ? percentData : [])
+  };
+}
+
+function sectionRequisitionRT() {
+  const allReq = getCollection('requisitions');
+  const rt = allReq.filter((r) => (r.type || r.module_type) === 'RT');
+  const grouped = groupByUnit(rt);
+  const units = Object.keys(grouped);
+
+  const rows = units.map((unit) => {
+    const s = computeSummary(grouped[unit], { mode: 'requisition' });
+    return [unit, s.total, s.completed, `${s.percent}%`];
+  });
+
+  const plannedData = units.map((u) => computeSummary(grouped[u], { mode: 'requisition' }).total);
+  const completedData = units.map((u) => computeSummary(grouped[u], { mode: 'requisition' }).completed);
+  return {
+    html: `
+      <section class="table-card">
+        <h2>Requisition Dashboard (RT)</h2>
+        ${renderUnitTable(['Plant', 'Total Requisition (Job Size)', 'Completed (Job Size, Result Not Blank)', 'Progress %'], rows)}
+        ${renderUnitTable(['Plant', 'Total Requisition (Job size (Inch Dia))', 'Completed (Job size (Inch Dia), Result Not Blank)', 'Result'], rows)}
+        <article class="chart-card"><canvas id="requisitionRtChart"></canvas></article>
+      </section>
+    `,
+    chart: () => renderBarChart('requisitionRtChart', units, plannedData, completedData, [])
+  };
+}
+
+function sectionObservations() {
+  const rows = getCollection('observations');
+  const s = computeSummary(rows, { mode: 'observation' });
+
+  return `
+    <section class="table-card" id="observationDashboardLink" style="cursor:pointer;">
+      <h2>Observation Dashboard</h2>
+      ${renderSummaryCards([
+    { label: 'Total Observations', value: s.total },
+    { label: 'In Progress', value: s.inProgress },
+    { label: 'Completed', value: s.completed }
+  ])}
+      <p class="hint">Click this section to open Observation Entry.</p>
+    </section>
+  `;
+}
+
+function renderDashboard() {
+@@ -818,71 +820,64 @@ async function addObservationListPages(doc, options = {}) {
+          } catch (error) {
+            doc.text('Image', x + 1, y + 3);
+          }
+        } else {
+          doc.text('—', x + 1, y + 3);
+        }
+      } else {
+        doc.text(cellLines, x + 1, y);
+      }
+      x += widths[idx];
+    }
+
+    y += rowHeight;
+  }
+}
+
+
+
+async function waitForDashboardVisualStability() {
+  await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+  await new Promise((resolve) => window.setTimeout(resolve, 200));
+}
+
+function collectDashboardExportTargets(root) {
+  const sections = Array.from(root.querySelectorAll('.table-card'));
+  const tables = [];
+  const charts = [];
+  const combined = [];
+
+  sections.forEach((section) => {
+    const title = section.querySelector('h2')?.textContent?.trim() || 'Dashboard Section';
+    const table = section.querySelector('.table-wrap, .vessel-progress-wrap');
+    const chart = section.querySelector('.chart-card');
+    const cards = section.querySelector('.cards-grid');
+
+    if (table) {
+      tables.push({ title: `${title} - Table`, element: table });
+    }
+
+    if (chart) {
+      charts.push({ title: `${title} - Chart`, element: chart });
+    } else if (cards) {
+      charts.push({ title: `${title} - Summary`, element: cards });
+    if (table || chart || cards) {
+      combined.push({ title: `${title} - Table + Chart`, element: section });
+    }
+  });
+
+  return { tables, charts };
+  return { combined };
+}
+
+async function addElementAsLandscapePage(doc, html2canvas, options) {
+  const { element, title, reportTitle, dateLabel, timeLabel = '', generatedAt = "" } = options;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const sectionTitleY = 28;
+  const contentY = 34;
+  const contentHeight = pageHeight - contentY - 10;
+  const contentWidth = pageWidth - (margin * 2);
+
+  const exportToken = `pdf-export-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  element.setAttribute('data-pdf-export-token', exportToken);
+
+  let canvas;
+  try {
+    canvas = await html2canvas(element, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      onclone: (clonedDoc) => {
+        const clonedElement = clonedDoc.querySelector(`[data-pdf-export-token="${exportToken}"]`);
+        if (!clonedElement) return;
+@@ -978,63 +973,161 @@ function styleExportTables(container) {
 
   const totalCells = Array.from(container.querySelectorAll('tfoot td'));
   totalCells.forEach((cell) => {
@@ -1131,76 +1560,7 @@ function addTableRow(doc, columns, widths, y, isHeader = false) {
   });
 }
 
-function renderInspectionSummaryRows(rows = []) {
-  const grouped = groupByUnit(rows);
-  return Object.keys(grouped).sort((a, b) => a.localeCompare(b)).map((unit) => {
-    const s = computeSummary(grouped[unit], { mode: 'inspection' });
-    return [unit, s.planned, s.opportunity, s.inProgress, s.completed, s.todayCompleted];
-  });
-}
-
-function paginateTable(doc, opts) {
-  const {
-    title,
-    headers,
-    rows,
-    widths,
-    startY,
-    pageWidth,
-    pageHeight,
-    reportTitle,
-    dateLabel
-  } = opts;
-
-  let y = startY;
-
-  const addPage = () => {
-    doc.addPage('a4', 'landscape');
-    addPdfPageHeader(doc, reportTitle, pageWidth);
-    addPdfPageFooter(doc, pageWidth, pageHeight, dateLabel);
-    y = 24;
-  };
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(title, 12, y);
-  y += 8;
-
-  addTableRow(doc, headers, widths, y, true);
-  y += 8;
-
-  rows.forEach((row) => {
-    if (y > pageHeight - 18) {
-      addPage();
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(title, 12, y);
-      y += 8;
-      addTableRow(doc, headers, widths, y, true);
-      y += 8;
-    }
-    addTableRow(doc, row, widths, y);
-    y += 8;
-  });
-
-  return y + 4;
-}
-
-function setupDashboardDateTime() {
-  const el = document.getElementById('dashboardDateTime');
-  if (!el) return;
-
-  const render = () => {
-    el.textContent = new Date().toLocaleString();
-  };
-
-  render();
-  window.setInterval(render, 1000);
-}
-
-async function exportDashboardPdf() {
-  const jsPDF = getDashboardJsPdf();
-  const html2canvasLib = getDashboardHtml2Canvas();
+@@ -1111,105 +1204,97 @@ async function exportDashboardPdf() {
   if (!jsPDF) {
     alert('PDF library not loaded. Please refresh and try again.');
     return;
@@ -1226,6 +1586,7 @@ async function exportDashboardPdf() {
     await waitForDashboardVisualStability();
 
     const targets = collectDashboardExportTargets(root);
+    if (!targets.tables.length && !targets.charts.length) {
     if (!targets.combined.length) {
       alert('No dashboard content available to export.');
       return;
@@ -1251,6 +1612,11 @@ async function exportDashboardPdf() {
       generatedAt
     });
 
+    const orderedTables = [
+      'Vessel Dashboard - Table',
+      'Steam Trap Dashboard - Table',
+      'Pipeline Dashboard - Table',
+      'Requisition Dashboard (RT) - Table'
     const orderedSections = [
       'Vessel Dashboard - Table + Chart',
       'Steam Trap Dashboard - Table + Chart',
@@ -1259,8 +1625,8 @@ async function exportDashboardPdf() {
       'Observation Dashboard - Table + Chart'
     ];
 
-    for (const orderedTitle of orderedSections) {
-      const target = targets.combined.find((entry) => entry.title === orderedTitle);
+    for (const orderedTitle of orderedTables) {
+      const target = targets.tables.find((entry) => entry.title === orderedTitle);
       if (!target) continue;
       await addElementAsLandscapePage(doc, html2canvasLib, {
         element: target.element,
@@ -1272,7 +1638,16 @@ async function exportDashboardPdf() {
       });
     }
 
-    addCompletedVesselListPage(doc, { reportTitle, pageWidth, pageHeight, dateLabel, timeLabel, generatedAt });
+    for (const target of targets.charts) {
+      await addElementAsLandscapePage(doc, html2canvasLib, {
+        element: target.element,
+        title: target.title,
+        reportTitle,
+        dateLabel,
+        timeLabel,
+        generatedAt
+      });
+    }
 
     doc.save(`ATR2026_Dashboard_Visual_Report_${today}.pdf`);
   } catch (err) {
