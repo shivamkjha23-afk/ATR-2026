@@ -1013,7 +1013,7 @@ function prepareDashboardExportClone(container, clonedDoc) {
   styleExportSummaryCards(container);
   styleExportTables(container);
   styleExportChartCard(container);
-
+}
   
 function writeKeyValueList(doc, items, y) {
   doc.setFontSize(10);
