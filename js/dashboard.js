@@ -1032,7 +1032,7 @@ function styleExportTables(container) {
     table.style.borderCollapse = 'collapse';
     table.style.tableLayout = 'auto';
     table.style.width = '100%';
-    table.style.fontSize = '16px';
+    table.style.fontSize = '20px';
     table.style.lineHeight = '1.25';
   });
 
@@ -1041,7 +1041,7 @@ function styleExportTables(container) {
     cell.style.background = '#e2e8f0';
     cell.style.color = '#0f172a';
     cell.style.border = '1px solid #cbd5e1';
-    cell.style.fontSize = '16px';
+    cell.style.fontSize = '20px';
     cell.style.padding = '6px';
     cell.style.overflowWrap = 'normal';
     cell.style.wordBreak = 'normal';
@@ -1052,7 +1052,7 @@ function styleExportTables(container) {
     cell.style.background = '#ffffff';
     cell.style.color = '#0f172a';
     cell.style.border = '1px solid #cbd5e1';
-    cell.style.fontSize = '16px';
+    cell.style.fontSize = '20px';
     cell.style.padding = '5px';
     cell.style.overflowWrap = 'anywhere';
     cell.style.wordBreak = 'break-word';
